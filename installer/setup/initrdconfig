@@ -1,0 +1,79 @@
+#!/bin/sh
+
+TMP=/var/log/setup/tmp
+mkdir -p $TMP
+
+# Set the OS root directory (called T_PX for some unknown reason).
+# If an argument is given to this script and it is a directory, it
+# is taken to be the root directory. First though, we check for a
+# directory named $T_PX, and that gets the first priority.
+if [ ! -d "$T_PX" ]; then
+  if [ ! "$1" = "" ]; then
+    if [ -d "$1" ]; then
+      T_PX="$1"
+    fi
+  else
+    # Are we on the installer image?
+    if [ -r /usr/lib/setup/SeTpartitions ]; then
+      T_PX=/mnt
+    # Or, are we on a running system?
+    elif [ -r /etc/slackware-version ]; then
+      T_PX=/
+    # One more installer-likely thing:
+    elif [ -r /usr/lib/setup/setup ]; then
+      T_PX=/mnt
+    else
+      # We will have to assume we're on an installed and running system.
+      T_PX=/
+    fi
+  fi
+fi
+
+MCG="/usr/share/mkinitrd/mkinitrd_command_generator.sh"
+
+if [ ! -x $T_PX/$MCG ]; then
+  exit 1
+fi
+
+while [ 0 ]; do
+  dialog --title "BUILD INITRD" --menu "\
+An initial ramdisk is a very small set of files that are loaded into \
+RAM and \"mounted\" as the kernel boots before the main root filesystem \
+is mounted. The usual reason to use an initrd is to load kernel modules \
+in order to access the root partition. An initrd might also be required \
+to unlock an encrypted device. Usually these modules are required  to  \
+support the filesystem used by the root partition (e.g., ext4, jfs, xfs), \
+or perhaps the controller that the hard drive is attached to (SCSI, RAID, etc)." \
+  17 70 3 \
+  "simple" "Try to build an initrd automatically" \
+  "expert" "Use expert initrd setup menu" \
+  "skip" "Do not build initrd" \
+  2> $TMP/reply
+  if [ $? = 1 -o $? = 255 ]; then
+    exit 1
+  fi
+  REPLY="$(cat $TMP/reply)"
+  rm -f $TMP/reply
+  if [ "$REPLY" = "skip" ]; then
+    exit 1
+  elif [ "$REPLY" = "simple" ]; then
+    chroot $T_PX $MCG -r > $TMP/mkinitrd_command
+  elif [ "$REPLY" = "expert" ]; then
+    chroot $T_PX $MCG -r -i > $TMP/mkinitrd_command
+  fi
+  MKINITRD_COMMAND="$(cat $TMP/mkinitrd_command 2>/dev/null | grep "^mkinitrd")"
+  rm -f $TMP/mkinitrd_command
+  if [ -z "$MKINITRD_COMMAND" ]; then
+    dialog --msgbox "Error generating mkinitrd command." 5 38
+    continue
+  fi
+  dialog --infobox "Building initrd ..." 3 23
+  chroot $T_PX $MKINITRD_COMMAND >/dev/null 2>&1
+  if [ $? -ne 0 ]; then
+    dialog --msgbox "Error building initrd." 5 26
+    continue
+  fi
+  sleep 1
+  break
+done
+exit 0

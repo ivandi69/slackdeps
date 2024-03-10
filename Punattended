@@ -1,0 +1,7 @@
+REMOTE_URL="http://mirrors.kernel.org"
+REMOTE_PATH="/slackware/slackware64-current/slackware64"
+INSTALL_TEMPLATE="http://www.bisdesign.ca/ivandi/slackware/slackdeps/server.template"
+
+#REMOTE_URL="ftp://ivandi-desktop"
+#REMOTE_PATH="/slackware/slackware64-current/slackware64"
+#INSTALL_TEMPLATE="ftp://ivandi-desktop/slackware/slackdeps/server.template"

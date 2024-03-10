@@ -1,0 +1,11 @@
+NETWORK-SCRIPTS:network-scripts
+NETWORK-SCRIPTS:dhcpcd
+NETWORK-SCRIPTS:net-tools
+NETWORK-SCRIPTS:bridge-utils
+NETWORK-SCRIPTS:iputils
+NETWORK-SCRIPTS:iproute2
+NETWORK-SCRIPTS:traceroute
+NETWORK-SCRIPTS:wireless_tools
+NETWORK-SCRIPTS:wpa_supplicant
+NETWORK-SCRIPTS:crda
+NETWORK-SCRIPTS:ethtool

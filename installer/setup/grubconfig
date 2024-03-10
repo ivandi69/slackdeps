@@ -1,0 +1,187 @@
+#!/bin/sh
+
+TMP=/var/log/setup/tmp
+mkdir -p $TMP
+
+GRUB_INSTALL_LOG=$TMP/grub-install.log
+
+grub_result(){
+  if [ -r $GRUB_INSTALL_LOG ]; then
+    dialog --title "ERROR INSTALLING GRUB" \
+           --exit-label OK \
+           --textbox $GRUB_INSTALL_LOG 0 0
+    rm -f $GRUB_INSTALL_LOG
+    return 1
+  fi
+  return 0
+}
+
+grub_install(){
+  dialog  --infobox "Installing GRUB boot loader ..." 3 35
+  chroot $T_PX /usr/sbin/grub-install "$@" \
+  >$GRUB_INSTALL_LOG 2>&1 \
+  && rm -f $GRUB_INSTALL_LOG
+  sleep 1
+  grub_result
+}
+
+grub_mkconfig(){
+  dialog  --infobox "Configuring GRUB boot loader ..." 3 36
+  chroot $T_PX /usr/sbin/grub-mkconfig -o /boot/grub/grub.cfg \
+  >$GRUB_INSTALL_LOG 2>&1 \
+  && rm -f $GRUB_INSTALL_LOG
+  sleep 1
+  grub_result
+}
+
+gen_grub_default(){
+  (
+    echo "GRUB_DISTRIBUTOR=\"\$( sed 's/Slackware /Slackware-/' /etc/slackware-version )\""
+
+    [ -n "$GRUB_TIMEOUT" ] && echo "GRUB_TIMEOUT=\"$GRUB_TIMEOUT\""
+    [ -n "$GRUB_CMDLINE_LINUX_DEFAULT" ] && echo "GRUB_CMDLINE_LINUX_DEFAULT=\"$GRUB_CMDLINE_LINUX_DEFAULT\""
+
+    if [ -n "$GRUB_GFXMODE" ]; then
+      echo "GRUB_GFXMODE=\"$GRUB_GFXMODE\""
+      echo "GRUB_GFXPAYLOAD_LINUX=\"keep\""
+      echo "GRUB_FONT=\"/usr/share/grub/dejavusansmono.pf2\""
+    fi
+
+    [ -n "$GRUB_PRELOAD_MODULES" ] && echo "GRUB_PRELOAD_MODULES=\"$GRUB_PRELOAD_MODULES\""
+  ) \
+  > $T_PX/etc/default/grub
+}
+
+# Set the OS root directory (called T_PX for some unknown reason).
+# If an argument is given to this script and it is a directory, it
+# is taken to be the root directory. First though, we check for a
+# directory named $T_PX, and that gets the first priority.
+if [ ! -d "$T_PX" ]; then
+  if [ ! "$1" = "" ]; then
+    if [ -d "$1" ]; then
+      T_PX="$1"
+    fi
+  else
+    # Are we on the installer image?
+    if [ -r /usr/lib/setup/SeTpartitions ]; then
+      T_PX=/mnt
+    # Or, are we on a running system?
+    elif [ -r /etc/slackware-version ]; then
+      T_PX=/
+    # One more installer-likely thing:
+    elif [ -r /usr/lib/setup/setup ]; then
+      T_PX=/mnt
+    else
+      # We will have to assume we're on an installed and running system.
+      T_PX=/
+    fi
+  fi
+fi
+
+if [ ! -x $T_PX/usr/sbin/grub-install ]; then
+  exit 1
+fi
+
+while [ 0 ]; do
+  dialog --title "INSTALL GRUB" \
+  --backtitle "GRUB boot loader installation" \
+  --menu \
+"GNU GRUB (or just GRUB) is a boot loader package that \
+supports multiple operating systems on a computer. \
+During boot-up, the user can select the operating system \
+to run." \
+  12 70 3 \
+  "simple" "Try to install GRUB automatically" \
+  "expert" "Use expert GRUB setup menu" \
+  "skip" "Do not install GRUB" \
+  2> $TMP/reply
+  if [ $? = 1 -o $? = 255 ]; then
+    exit 1
+  fi
+  REPLY="$(cat $TMP/reply)"
+  rm -f $TMP/reply
+  if [ "$REPLY" = "skip" ]; then
+    exit 1
+  fi
+
+  if [ -d /sys/firmware/efi ]; then
+    BOOT_DRIVE=""
+  else
+    BOOT_DRIVE=$(lsblk -dprn -o rm,type,name -x name \
+                | grep "^0" | grep "disk" \
+                | cut -f3 -d ' ' | head -n 1)
+  fi
+
+  if [ "$REPLY" = "simple" ]; then
+    GRUB_TIMEOUT="10"
+    GRUB_CMDLINE_LINUX_DEFAULT="quiet"
+
+    gen_grub_default
+    grub_install $BOOT_DRIVE || continue
+    grub_mkconfig || continue
+
+    break
+  fi
+
+  if [ "$REPLY" = "expert" ]; then
+    while [ 0 ]; do
+      GRUB_DEVICE="$BOOT_DRIVE"
+      GRUB_TIMEOUT=""
+      GRUB_GFXMODE=""
+      GRUB_CMDLINE_LINUX_DEFAULT=""
+      GRUB_PRELOAD_MODULES=""
+
+      if [ -r $T_PX/etc/default/grub ]; then
+        . $T_PX/etc/default/grub
+      fi
+
+      FIELD=""
+      while [ 0 ]; do
+        dialog --title "GRUB SETUP" \
+        --ok-label Install \
+        --extra-label Edit \
+        --cancel-label Restart \
+        --default-button extra \
+        --default-item "$FIELD:" \
+        --inputmenu "This menu directs the creation of /etc/default/grub:" \
+        22 60 15 \
+        "Boot device:" "$GRUB_DEVICE" \
+        "Boot timeout:" "$GRUB_TIMEOUT" \
+        "Video mode:" "$GRUB_GFXMODE" \
+        "Command line:" "$GRUB_CMDLINE_LINUX_DEFAULT" \
+        "Preload modules:" "$GRUB_PRELOAD_MODULES" \
+        2> $TMP/tempmsg
+        RETVAL=$?
+        if [ "$RETVAL" = "3" ]; then
+          FIELD=$(cat $TMP/tempmsg | cut -f 1 -d : | cut -f 2- -d ' ')
+          NEWVAL=$(cat $TMP/tempmsg | cut -f 2 -d : | cut -f 2- -d ' ')
+          if [ "$FIELD" = "Boot device" ]; then
+            GRUB_DEVICE="$NEWVAL"
+          elif [ "$FIELD" = "Boot timeout" ]; then
+            GRUB_TIMEOUT="$NEWVAL"
+          elif [ "$FIELD" = "Video mode" ]; then
+            GRUB_GFXMODE="$NEWVAL"
+          elif [ "$FIELD" = "Command line" ]; then
+            GRUB_CMDLINE_LINUX_DEFAULT="$NEWVAL"
+          elif [ "$FIELD" = "Preload modules" ]; then
+            GRUB_PRELOAD_MODULES="$NEWVAL"
+          fi
+        else
+          break
+        fi
+      done
+      if [ "$RETVAL" = "0" ]; then
+        rm -f $TMP/tempmsg
+        break
+      fi
+    done
+
+    gen_grub_default
+    grub_install "$GRUB_DEVICE" || continue
+    grub_mkconfig || continue
+
+    break
+  fi
+done
+
+exit 0
